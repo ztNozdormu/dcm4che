@@ -72,7 +72,10 @@ import java.util.concurrent.TimeUnit;
 
 import javax.net.ssl.SSLContext;
 
-import org.dcm4che3.audit.*;
+import org.dcm4che3.audit.ActiveParticipant;
+import org.dcm4che3.audit.AuditMessage;
+import org.dcm4che3.audit.AuditSourceIdentification;
+import org.dcm4che3.audit.AuditMessages;
 import org.dcm4che3.audit.AuditMessages.RoleIDCode;
 import org.dcm4che3.net.Connection;
 import org.dcm4che3.net.Device;
@@ -406,16 +409,13 @@ public class AuditLogger {
                 asi.setAuditEnterpriseSiteID(auditEnterpriseSiteID);
         }
         for (String code : auditSourceTypeCodes) {
-            AuditSourceTypeCode asc = new AuditSourceTypeCode();
             if (code.equals("dicomPrimaryDeviceType")) {
                 for (String type : device.getPrimaryDeviceTypes()) {
-                    asc.setCsdCode(type);
-                    asc.setCodeSystemName("DCM");
-                    asi.getAuditSourceTypeCode().add(asc);
+                    asi.setCode(type);
+                    asi.setCodeSystemName("DCM");
                 }
             } else {
-                asc.setCsdCode(code);
-                asi.getAuditSourceTypeCode().add(asc);
+                asi.setCode(code);
             }
         }
         return asi ;
