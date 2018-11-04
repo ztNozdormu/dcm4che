@@ -45,7 +45,7 @@ import org.dcm4che3.conf.ldap.LdapDicomConfigurationExtension;
 import org.dcm4che3.conf.api.ConfigurationChanges;
 import org.dcm4che3.conf.ldap.LdapUtils;
 import org.dcm4che3.net.Device;
-import org.dcm4che3.net.HL7ApplicationInfo;
+import org.dcm4che3.net.hl7.HL7ApplicationInfo;
 import org.dcm4che3.net.hl7.HL7Application;
 import org.dcm4che3.net.hl7.HL7DeviceExtension;
 import org.dcm4che3.util.StringUtils;
@@ -53,7 +53,6 @@ import org.dcm4che3.util.StringUtils;
 import javax.naming.*;
 import javax.naming.directory.*;
 import java.util.ArrayList;
-import java.util.Enumeration;
 import java.util.List;
 
 /**
@@ -198,12 +197,13 @@ public class LdapHL7Configuration extends LdapDicomConfigurationExtension
         ArrayList<HL7ApplicationInfo> results = new ArrayList<HL7ApplicationInfo>();
         NamingEnumeration<SearchResult> ne = null;
         try {
-            ne = config.search(keys.getDeviceName(), HL7_ATTRS, toFilter(keys));
+            String deviceName = keys.getDeviceName();
+            ne = config.search(deviceName, HL7_ATTRS, toFilter(keys));
             while (ne.hasMore()) {
                 HL7ApplicationInfo hl7AppInfo = new HL7ApplicationInfo();
                 SearchResult ne1 = ne.next();
-                Enumeration<String> s1 = config.getStringEnumeration(ne1);
-                loadFrom(hl7AppInfo, ne1.getAttributes(), config.getDeviceName(s1));
+                loadFrom(hl7AppInfo, ne1.getAttributes(),
+                        deviceName != null ? deviceName : LdapUtils.cutDeviceName(ne1.getName()));
                 results.add(hl7AppInfo);
             }
         } catch (NameNotFoundException e) {
@@ -280,15 +280,13 @@ public class LdapHL7Configuration extends LdapDicomConfigurationExtension
 
     private void store(ConfigurationChanges diffs, HL7Application hl7App, String deviceDN) throws NamingException {
         String appDN = hl7appDN(hl7App.getApplicationName(), deviceDN);
-        ConfigurationChanges.ModifiedObject ldapObj = diffs != null
-                ? new ConfigurationChanges.ModifiedObject(appDN, ConfigurationChanges.ChangeType.C)
-                : null;
+        ConfigurationChanges.ModifiedObject ldapObj =
+                ConfigurationChanges.addModifiedObject(diffs, appDN, ConfigurationChanges.ChangeType.C);
         config.createSubcontext(appDN,
-                storeTo(ldapObj, hl7App, deviceDN, new BasicAttributes(true)));
-        if (diffs != null)
-            diffs.add(ldapObj);
+                storeTo(ConfigurationChanges.nullifyIfNotVerbose(diffs, ldapObj),
+                        hl7App, deviceDN, new BasicAttributes(true)));
         for (LdapHL7ConfigurationExtension ext : extensions)
-            ext.storeChilds(diffs, appDN, hl7App);
+            ext.storeChilds(ConfigurationChanges.nullifyIfNotVerbose(diffs, diffs), appDN, hl7App);
     }
 
     private String hl7appDN(String name, String deviceDN) {
@@ -374,8 +372,7 @@ public class LdapHL7Configuration extends LdapDicomConfigurationExtension
             for (String appName : prevHL7Ext.getHL7ApplicationNames()) {
                 if (hl7Ext == null || !hl7Ext.containsHL7Application(appName)) {
                     config.destroySubcontextWithChilds(hl7appDN(appName, deviceDN));
-                    if (diffs != null)
-                        diffs.add(new ConfigurationChanges.ModifiedObject(hl7appDN(appName, deviceDN), ConfigurationChanges.ChangeType.D));
+                    ConfigurationChanges.addModifiedObject(diffs, hl7appDN(appName, deviceDN), ConfigurationChanges.ChangeType.D);
                 }
             }
 
@@ -384,8 +381,9 @@ public class LdapHL7Configuration extends LdapDicomConfigurationExtension
 
         for (HL7Application hl7app : hl7Ext.getHL7Applications()) {
             String appName = hl7app.getApplicationName();
-            if (prevHL7Ext == null || !prevHL7Ext.containsHL7Application(appName))
+            if (prevHL7Ext == null || !prevHL7Ext.containsHL7Application(appName)) {
                 store(diffs, hl7app, deviceDN);
+            }
             else
                 merge(diffs, prevHL7Ext.getHL7Application(appName), hl7app, deviceDN);
         }
@@ -394,10 +392,11 @@ public class LdapHL7Configuration extends LdapDicomConfigurationExtension
     private void merge(ConfigurationChanges diffs, HL7Application prev, HL7Application app, String deviceDN)
             throws NamingException {
         String appDN = hl7appDN(app.getApplicationName(), deviceDN);
-        ConfigurationChanges.ModifiedObject ldapObj = diffs != null ? new ConfigurationChanges.ModifiedObject(appDN, ConfigurationChanges.ChangeType.U) : null;
+        ConfigurationChanges.ModifiedObject ldapObj =
+                ConfigurationChanges.addModifiedObject(diffs, appDN, ConfigurationChanges.ChangeType.U);
         config.modifyAttributes(appDN, storeDiffs(ldapObj, prev, app, deviceDN,
                 new ArrayList<ModificationItem>()));
-        if (diffs != null) diffs.add(ldapObj);
+        ConfigurationChanges.removeLastIfEmpty(diffs, ldapObj);
         for (LdapHL7ConfigurationExtension ext : extensions)
             ext.mergeChilds(diffs, prev, app, appDN);
     }
@@ -498,4 +497,5 @@ public class LdapHL7Configuration extends LdapDicomConfigurationExtension
             LdapUtils.safeClose(ne);
         }
     }
+
 }
